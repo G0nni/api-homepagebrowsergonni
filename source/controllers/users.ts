@@ -49,6 +49,7 @@ const login = (req: Request, res: Response, next: NextFunction) => {
                                     message: 'Unauthorized'
                                 });
                             } else if (token) {
+                                res.cookie('token', token, { httpOnly: true, sameSite: 'strict' }); // Set the cookie here
                                 return res.status(200).json({
                                     token,
                                     user: user[0]
@@ -255,4 +256,34 @@ const getAllUsers = (req: Request, res: Response, next: NextFunction) => {
     });
 };
 
-export default { getAllUsers, createUser, deleteAllUsers, deleteUserById, validateToken, login };
+const getUserFavorites = (req: Request, res: Response, next: NextFunction) => {
+    logging.info(NAMESPACE, 'Getting user favorites.');
+
+    let query = 'SELECT favorites FROM users WHERE username = ?';
+
+    Connect().then((connection) => {
+        Query<IUser[]>(connection, query, [req.params.username])
+            .then((results) => {
+                if (results instanceof Array && results.length === 0) {
+                    return res.status(404).json({
+                        message: 'User not found'
+                    });
+                }
+                let user = results as unknown as IUser[];
+                return res.status(200).json({ favorites: user[0].favorites });
+            })
+            .catch((error) => {
+                logging.error(NAMESPACE, error.message, error);
+
+                return res.status(500).json({
+                    message: error.message,
+                    error
+                });
+            })
+            .finally(() => {
+                connection.end();
+            });
+    });
+};
+
+export default { getAllUsers, createUser, deleteAllUsers, deleteUserById, validateToken, login, getUserFavorites };
