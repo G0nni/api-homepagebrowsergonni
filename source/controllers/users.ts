@@ -5,6 +5,8 @@ import bcrypt from 'bcrypt';
 import signJWT from '../functions/signJWT';
 import IUser from '../interfaces/user';
 import IMySQLResult from '../interfaces/result';
+import jwt from 'jsonwebtoken';
+import config from '../config/config';
 
 const NAMESPACE = 'users';
 
@@ -16,6 +18,19 @@ const validateToken = (req: Request, res: Response, next: NextFunction) => {
     });
 };
 
+const whoAmI = (req: Request, res: Response, next: NextFunction) => {
+    if (!res.locals.jwt) {
+        return res.status(401).json({
+            message: 'Unauthorized: No token provided'
+        });
+    }
+
+    return res.status(200).json({
+        user: {
+            userId: res.locals.jwt.userId
+        }
+    });
+};
 const login = (req: Request, res: Response, next: NextFunction) => {
     let { username, password } = req.body;
 
@@ -41,7 +56,8 @@ const login = (req: Request, res: Response, next: NextFunction) => {
                             message: 'Unauthorized'
                         });
                     } else if (result) {
-                        signJWT(user[0], (error, token) => {
+                        console.log(user[0].id);
+                        signJWT(user[0].id, (error, token) => {
                             if (error) {
                                 logging.error(NAMESPACE, error.message, error);
 
@@ -49,7 +65,7 @@ const login = (req: Request, res: Response, next: NextFunction) => {
                                     message: 'Unauthorized'
                                 });
                             } else if (token) {
-                                res.cookie('token', token, { httpOnly: true, sameSite: 'strict' }); // Set the cookie here
+                                res.cookie('token', token, { httpOnly: true, sameSite: 'strict' });
                                 return res.status(200).json({
                                     token,
                                     user: user[0]
@@ -76,6 +92,7 @@ const createUser = (req: Request, res: Response, next: NextFunction) => {
     logging.info(NAMESPACE, 'Creating user.');
 
     let { username, email, password, favorites } = req.body;
+    let favoritesString = JSON.stringify(favorites);
 
     // Hash and salt the password
     bcrypt.hash(password, 10, (err, hashedPassword) => {
@@ -102,7 +119,7 @@ const createUser = (req: Request, res: Response, next: NextFunction) => {
                         }
 
                         let insertUserQuery = 'INSERT INTO users (username, email, password, favorites) VALUES (?, ?, ?, ?)';
-                        let insertUserValues = [username, email, hashedPassword, favorites];
+                        let insertUserValues = [username, email, hashedPassword, favoritesString];
 
                         Query<IMySQLResult>(connection, insertUserQuery, insertUserValues)
                             .then((result) => {
@@ -256,6 +273,39 @@ const getAllUsers = (req: Request, res: Response, next: NextFunction) => {
     });
 };
 
+const getUserById = (req: Request, res: Response, next: NextFunction) => {
+    logging.info(NAMESPACE, 'Getting user by id.');
+
+    let id = req.params.id;
+
+    let query = 'SELECT id, username FROM users WHERE id = ?';
+    let values = [id];
+
+    Connect().then((connection) => {
+        Query<IUser[]>(connection, query, values)
+            .then((results) => {
+                if (results instanceof Array && results.length === 0) {
+                    return res.status(404).json({
+                        message: 'User not found'
+                    });
+                }
+
+                return res.status(200).json({ results });
+            })
+            .catch((error) => {
+                logging.error(NAMESPACE, error.message, error);
+
+                return res.status(500).json({
+                    message: error.message,
+                    error
+                });
+            })
+            .finally(() => {
+                connection.end();
+            });
+    });
+};
+
 const getUserFavorites = (req: Request, res: Response, next: NextFunction) => {
     logging.info(NAMESPACE, 'Getting user favorites.');
 
@@ -286,4 +336,4 @@ const getUserFavorites = (req: Request, res: Response, next: NextFunction) => {
     });
 };
 
-export default { getAllUsers, createUser, deleteAllUsers, deleteUserById, validateToken, login, getUserFavorites };
+export default { getAllUsers, createUser, deleteAllUsers, deleteUserById, validateToken, login, getUserFavorites, whoAmI };
